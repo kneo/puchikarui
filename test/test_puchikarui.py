@@ -46,6 +46,7 @@ class SchemaDemo(Schema):
         self.add_table('hobby').add_fields('pid', 'hobby')
         self.add_table('school', alias='college').add_fields('ID', 'name', 'address')
         self.add_table('diary', 'ID pid text').set_proto(Diary).set_id('ID').field_map(pid='ownerID', text='content')
+        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'])
 
 
 class Diary(object):
@@ -191,9 +192,9 @@ class TestSchema(unittest.TestCase):
         ctx.executescript("""INSERT INTO person (name, age) VALUES ('Odin', 10000);""")
         ctx.commit()
         elders = [p.to_dict() for p in schema.person.select("age > ?", (1000,))]
-        expected = [{'ID': 7, 'name': 'Zeus', 'age': 3722},
-                    {'ID': 8, 'name': 'Thor', 'age': 1503},
-                    {'ID': 9, 'name': 'Odin', 'age': 10000}]
+        expected = [{'ID': 8, 'name': 'Zeus', 'age': 3722},
+                    {'ID': 9, 'name': 'Thor', 'age': 1503},
+                    {'ID': 10, 'name': 'Odin', 'age': 10000}]
         self.assertEqual(expected, elders)
         # test select all
         ages = [x[0] for x in ctx.execute("SELECT age FROM person WHERE age > 1000")]
@@ -225,13 +226,13 @@ class TestSchema(unittest.TestCase):
         ds = DataSource(TEST_DB)
         ctx = ds.open(auto_commit=None)
         ids = {id for (id,) in ctx.double(row_factory=None).execute("SELECT ID FROM Person")}
-        expected = {1, 2, 3, 4, 5, 6}
+        expected = {1, 2, 3, 4, 5, 6, 7}
         self.assertEqual(expected, ids)
         # test the same thing for MemorySource without schema
         mem_source = MemorySource(TEST_DB)
         ctx = mem_source.open()
         ids = {id for (id,) in ctx.double(row_factory=None).execute("SELECT ID FROM Person")}
-        expected = {1, 2, 3, 4, 5, 6}
+        expected = {1, 2, 3, 4, 5, 6, 7}
         self.assertEqual(expected, ids)
         # test select without schema
         recs = ctx.select_iter("person", "id > 3")
@@ -241,7 +242,7 @@ class TestSchema(unittest.TestCase):
         mem_source = MemorySource(TEST_DB)
         ctx = mem_source.open(schema=schema, force_iterdump=True)
         ids = {id for (id,) in ctx.double(row_factory=None).execute("SELECT ID FROM Person")}
-        expected = {1, 2, 3, 4, 5, 6}
+        expected = {1, 2, 3, 4, 5, 6, 7}
         self.assertEqual(expected, ids)
 
     def test_buckmode(self):
@@ -250,7 +251,7 @@ class TestSchema(unittest.TestCase):
         for p in db.person.select_iter():
             rows.append((p.ID, p.name, p.age))
         expected = [(1, 'Ji', 28), (2, 'Zen', 25), (3, 'Ka', 32),
-                    (4, 'Anh', 15), (5, 'Vi', 33), (6, 'Chun', 78)]
+                    (4, 'Anh', 15),(5, 'kneo', 40), (6, 'Vi', 33), (7, 'Chun', 78)]
         self.assertEqual(expected, rows)
         db.buckmode()
         db.begin()
@@ -265,10 +266,10 @@ class TestSchema(unittest.TestCase):
         db.commit()
         db.commit()
         persons = db.person.select()
-        self.assertEqual(1006, len(persons))
+        self.assertEqual(1007, len(persons))
         actual = [(p.ID, p.name, p.age) for p in
-                  (db.person.by_id(7), db.person.by_id(1006))]
-        expected = [(7, 'Person 1', 1), (1006, 'Person 1000', 1000)]
+                  (db.person.by_id(8), db.person.by_id(1007))]
+        expected = [(8, 'Person 1', 1), (1007, 'Person 1000', 1000)]
         self.assertEqual(expected, actual)
         # test buckmode on and off
         db.buckmode()
@@ -277,15 +278,15 @@ class TestSchema(unittest.TestCase):
         db.buckmode_off()
         db.commit()
         persons = db.person.select()
-        self.assertEqual(1106, len(persons))
+        self.assertEqual(1107, len(persons))
 
     def test_vacuum(self):
         db = SchemaDemo()
         persons = db.person.select()
-        self.assertEqual(6, len(persons))
+        self.assertEqual(7, len(persons))
         db.vacuum()
         persons = db.person.select()
-        self.assertEqual(6, len(persons))
+        self.assertEqual(7, len(persons))
 
     def test_accessing_weird_attr(self):
         s = SchemaDemo()
@@ -351,7 +352,7 @@ class TestSchema(unittest.TestCase):
             select_cur = ctx.double(row_factory=None)
             names = [ctx.person.by_id(pid[0]).name
                      for pid in select_cur.execute("SELECT ID from person")]
-            expected = ['Ji', 'Zen', 'Ka', 'Anh', 'Vi', 'Chun']
+            expected = ['Ji', 'Zen', 'Ka', 'Anh', 'kneo', 'Vi', 'Chun']
             self.assertEqual(expected, names)
 
     def test_execution_context_status(self):
@@ -385,20 +386,20 @@ class TestRamDB(unittest.TestCase):
     def test_memory_ds(self):
         # prepare a sample DB
         db = SchemaDemo(TEST_DB)
-        self.assertEqual(6, len(db.person.select()))
+        self.assertEqual(7, len(db.person.select()))
         # now load it into RAM
         db_ram = SchemaDemo(MemorySource(TEST_DB))
         ctx = db_ram.open()
-        self.assertEqual(6, len(ctx.person.select()))
+        self.assertEqual(7, len(ctx.person.select()))
         # insert new data
         emacs_age = datetime.now().year - 1976
         db_ram.person.insert("Emacs", emacs_age)
-        self.assertEqual(33, db_ram.person.by_id(5).age)
-        self.assertEqual("Emacs", db_ram.person.by_id(7).name)
-        self.assertEqual(emacs_age, db_ram.person.by_id(7).age)
+        self.assertEqual(33, db_ram.person.by_id(6).age)
+        self.assertEqual("Emacs", db_ram.person.by_id(8).name)
+        self.assertEqual(emacs_age, db_ram.person.by_id(8).age)
         # this should close the database
         ctx = db_ram.open()
-        self.assertEqual(7, len(ctx.person.select()))
+        self.assertEqual(8, len(ctx.person.select()))
         db_ram.close()
         self.assertRaises(sqlite3.ProgrammingError, lambda: db_ram.person.select())
 
@@ -432,7 +433,7 @@ class TestDemoLib(unittest.TestCase):
         # Test select data
         persons = db.person.select(where='age > ?', values=[25], orderby='age', limit=10)
         self.assertIsNotNone(persons)
-        expected = [('Ji', 28), ('Ka', 32), ('Vi', 33), ('Kent', 42), ('Chun', 78)]
+        expected = [('Ji', 28), ('Ka', 32), ('Vi', 33), ('kneo', 40),('Kent', 42), ('Chun', 78)]
         actual = [(person.name, person.age) for person in persons]
         self.assertEqual(expected, actual)
         # Test select single
@@ -449,7 +450,7 @@ class TestDemoLib(unittest.TestCase):
         with db.ctx() as ctx:
             # test select
             ppl = ctx.person.select()
-            self.assertEqual(len(ppl), 6)
+            self.assertEqual(len(ppl), 7)
             # test insert
             ctx.person.insert('Totoro', columns=('name',))  # insert partial data
             ctx.person.insert('Shizuka', 10)  # full record
@@ -461,12 +462,12 @@ class TestDemoLib(unittest.TestCase):
             self.assertEqual(totoro.age, 10)
             # test updated
             ppl = ctx.person.select()
-            self.assertEqual(len(ppl), 8)
+            self.assertEqual(len(ppl), 9)
             # test delete
             ctx.person.delete('age > ?', (70,))
             ppl = ctx.person.select()
             # done!
-            expected = [(1, 'Ji', 28), (2, 'Zen', 25), (3, 'Ka', 32), (4, 'Anh', 15), (5, 'Vi', 33), (7, 'Totoro', 10), (8, 'Shizuka', 10)]
+            expected = [(1, 'Ji', 28), (2, 'Zen', 25), (3, 'Ka', 32), (4, 'Anh', 15), (5, 'kneo', 40), (6, 'Vi', 33), (8, 'Totoro', 10), (9, 'Shizuka', 10)]
             actual = [(person.ID, person.name, person.age) for person in ppl]
             self.assertEqual(expected, actual)
 
@@ -474,7 +475,7 @@ class TestDemoLib(unittest.TestCase):
         db = SchemaDemo()  # create a new DB in RAM
         pers = db.person.select(columns=('name',))
         names = [x.name for x in pers]
-        self.assertEqual(names, ['Ji', 'Zen', 'Ka', 'Anh', 'Vi', 'Chun'])
+        self.assertEqual(names, ['Ji', 'Zen', 'Ka', 'Anh', 'kneo', 'Vi', 'Chun'])
 
     def test_query_builder(self):
         db = SchemaDemo()
@@ -485,9 +486,9 @@ class TestDemoLib(unittest.TestCase):
             p.age += 1
             db.person.save(p, ('age',))
         updated_ages = [p.age for p in db.person.select()]
-        self.assertEqual(ages, [28, 25, 32, 15, 33])
-        self.assertEqual(updated_ages, [29, 26, 33, 16, 34])
-        self.assertEqual(len(db.person.select()), 5)
+        self.assertEqual(ages, [28, 25, 32, 15, 40, 33])
+        self.assertEqual(updated_ages, [29, 26, 33, 16, 41, 34])
+        self.assertEqual(len(db.person.select()), 6)
         # update back to before using update_record
         for p in db.person.select():
             p.age -= 1
@@ -497,10 +498,10 @@ class TestDemoLib(unittest.TestCase):
         # try insert_object
         db.insert_object(db.person, Person('Boo Boo', 33))
         db.insert_object("person", Person('Boo Boo 2', 34), columns=('name', 'age'))
-        self.assertEqual(len(db.person.select()), 7)
+        self.assertEqual(len(db.person.select()), 8)
         db.update_record(db.person, ('Smurf',), columns=('name',))
         names = [p.name for p in db.person.select()]
-        self.assertEqual(names, ['Smurf'] * 7)
+        self.assertEqual(names, ['Smurf'] * 8)
         db.person.delete()
         self.assertEqual(len(db.person.select()), 0)
 
@@ -566,6 +567,13 @@ class TestDemoLib(unittest.TestCase):
             diary = ctx.diary.by_id(d.ID)
             self.assertEqual(diary.content, new_content)
             print(diary)
+
+    def test_view(self):
+        db = SchemaDemo()  # create a new DB in RAM
+        with db.ctx() as ctx:
+            hobbies = ctx.person_hobby_view.select(where='phobby IS NOT NULL')
+            self.assertEqual(len(hobbies), 2)
+            print(hobbies)
 
 
 class SchemaA(Schema):
@@ -678,8 +686,8 @@ class TestWithContext(unittest.TestCase):
             # count persons in each context
             persons_ctx1 = db.person.select()
             persons_ctx2 = db.person.select(ctx=ctx)
-            self.assertEqual(len(persons_ctx1), 8)
-            self.assertEqual(len(persons_ctx2), 7)
+            self.assertEqual(len(persons_ctx1), 9)
+            self.assertEqual(len(persons_ctx2), 8)
 
     def test_mix_context(self):
         db = SchemaDemo()
@@ -713,11 +721,11 @@ class TestWithContext(unittest.TestCase):
         db = SchemaDemo()
         print("Select persons ...")
         persons = db.person.select()
-        self.assertEqual(len(persons), 6)
+        self.assertEqual(len(persons), 7)
         print("Create a new person")
         p = Person("New Person", 50)
         id = db.person.save(p)
-        self.assertEqual(len(db.person.select()), 7)
+        self.assertEqual(len(db.person.select()), 8)
         # native query
         person_tuples = [tuple(p) for p in db.query_all('SELECT * FROM person')]
         person_dicts = [dict(p) for p in db.query_all('SELECT * FROM person')]
@@ -725,16 +733,18 @@ class TestWithContext(unittest.TestCase):
                            (2, 'Zen', 25),
                            (3, 'Ka', 32),
                            (4, 'Anh', 15),
-                           (5, 'Vi', 33),
-                           (6, 'Chun', 78),
-                           (7, 'New Person', 50)]
+                           (5, 'kneo', 40),
+                           (6, 'Vi', 33),
+                           (7, 'Chun', 78),
+                           (8, 'New Person', 50)]
         expected_dicts = [{'ID': 1, 'name': 'Ji', 'age': 28},
                           {'ID': 2, 'name': 'Zen', 'age': 25},
                           {'ID': 3, 'name': 'Ka', 'age': 32},
                           {'ID': 4, 'name': 'Anh', 'age': 15},
-                          {'ID': 5, 'name': 'Vi', 'age': 33},
-                          {'ID': 6, 'name': 'Chun', 'age': 78},
-                          {'ID': 7, 'name': 'New Person', 'age': 50}]
+                          {'ID': 5, 'name': 'kneo', 'age': 40},
+                          {'ID': 6, 'name': 'Vi', 'age': 33},
+                          {'ID': 7, 'name': 'Chun', 'age': 78},
+                          {'ID': 8, 'name': 'New Person', 'age': 50}]
         self.assertEqual(expected_tuples, person_tuples)
         self.assertEqual(expected_dicts, person_dicts)
 

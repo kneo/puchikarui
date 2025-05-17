@@ -214,6 +214,107 @@ class Table:
         return ctx.save(obj, columns)
 
 
+class View:
+    def __init__(self, name, *columns, data_source=None, proto=None, id_cols: Sequence = None,
+                 strict_mode=False, **field_map):
+        """ Contains information of a view in the database
+            strict_mode -- Warn users if a bad database design is detected (defaulted to False)
+        """
+        self._strict_mode = strict_mode
+        self.name = name
+        self.columns = []
+        self.add_fields(*columns)
+        self._data_source = data_source
+        self._proto = proto
+        if not id_cols:
+            self._id_cols = []
+        elif isinstance(id_cols, str):
+            self._id_cols = id_cols.split()
+        else:
+            self._id_cols = id_cols
+        self._field_map = field_map
+
+    def add_fields(self, *columns):
+        self.columns.extend(columns)
+        if self._strict_mode:
+            try:
+                namedtuple(self.name, self.columns, rename=False)
+            except Exception as ex:
+                logging.getLogger(__name__).warning("WARNING: Bad database design detected (View: %s (%s)" % (self.name, self.columns))
+        self.template = namedtuple(self.name, self.columns, rename=True)
+        return self
+
+    @property
+    def id_cols(self):
+        return self._id_cols
+
+    def set_id(self, *id_cols):
+        self._id_cols.extend(id_cols)
+        return self
+
+    def set_proto(self, proto):
+        self._proto = proto
+        return self
+
+    def field_map(self, **field_map):
+        self._field_map.update(field_map)
+        return self
+
+    def __repr__(self):
+        return f"View({repr(self.name)}, *{repr(self.columns)})"
+
+    def __str__(self):
+        return repr(self)
+
+    def to_view(self, row_tuples, columns=None):
+        return [self.to_obj(x, columns) for x in row_tuples]
+
+    def to_row(self, row_tuple, template=None):
+        if template:
+            return template(*row_tuple)
+        else:
+            return self.template(*row_tuple)
+
+    def to_obj(self, row_tuple, columns=None):
+        # fall back to row_tuple
+        if not self._proto:
+            if columns:
+                new_tuples = namedtuple(self.name, columns, rename=True)
+                return self.to_row(row_tuple, new_tuples)
+            else:
+                return self.to_row(row_tuple)
+        # else create objects
+        if not columns:
+            columns = self.columns
+        new_obj = to_obj(self._proto, dict(zip(columns, row_tuple)), *columns, **self._field_map)
+        # assign values
+        return new_obj
+
+    def ctx(self, ctx) -> 'ViewContext':
+        return ViewContext(self, ctx)
+
+    def __ds_ctx(self) -> 'ViewContext':
+        return getattr(self._data_source, self.name)
+
+    def select_single(self, where=None, values=None, orderby=None, limit=None, columns=None, ctx=None):
+        ctx = self.__ds_ctx() if ctx is None else self.ctx(ctx)
+
+        return ctx.select_single(where=where, values=values, orderby=orderby, limit=limit, columns=columns)
+
+    def select(self, where=None, values=None, orderby=None, limit=None, columns=None, ctx=None):
+        ctx = self.__ds_ctx() if ctx is None else self.ctx(ctx)
+        print("View called!");
+        return ctx.select(where, values, orderby=orderby, limit=limit, columns=columns)
+
+    def select_iter(self, where=None, values=None, orderby=None, limit=None, columns=None, ctx=None):
+        ctx = self.__ds_ctx() if ctx is None else self.ctx(ctx)
+        return ctx.select_iter(where, values, orderby=orderby, limit=limit, columns=columns)
+
+    def by_id(self, *args, columns=None, ctx=None):
+        ctx = self.__ds_ctx() if ctx is None else self.ctx(ctx)
+        return ctx.by_id(*args, columns=columns)
+
+
 class DataSource:
 
     def __init__(self, db_path, schema=None, auto_expand_path=True):
@@ -344,6 +445,32 @@ class QueryBuilder(object):
         return ''.join(query)
 
     @classmethod
+    def build_select_from_view(cls, view, where=None, orderby=None, limit=None, columns=None) -> str:
+        query = []
+        if isinstance(columns, str):
+            columns = columns.split()
+        if isinstance(view, View):
+            if not columns:
+                columns = view.columns
+            view_name = view.name
+        else:
+            view_name = str(view)
+        query.append("SELECT ")
+        query.append(','.join(columns) if columns else '*')
+        query.append(" FROM ")
+        query.append(view_name)
+        if where:
+            query.append(" WHERE ")
+            query.append(where)
+        if orderby:
+            query.append(" ORDER BY ")
+            query.append(orderby)
+        if limit:
+            query.append(" LIMIT ")
+            query.append(str(limit))
+        return ''.join(query)
+
+    @classmethod
     def build_insert(cls, table, values, columns=None) -> str:
         """ Insert an active record into DB and return lastrowid if available """
         if isinstance(table, Table):
@@ -446,6 +573,29 @@ class TableContext(object):
         return self._context.update(self._table, set_expr, where=where, values=values)
 
 
+class ViewContext(object):
+    def __init__(self, view, context):
+        self._view = view
+        self._context: ExecutionContext = context
+
+    def to_view(self, *args, **kwargs):
+        return self._view.to_view(*args, **kwargs)
+
+    def select(self, where=None, values=None, **kwargs):
+        return self._context.select(self._view, where, values, **kwargs)
+
+    def select_iter(self, where=None, values=None, **kwargs):
+        return self._context.select_iter(self._view, where, values, **kwargs)
+
+    def select_single(self, where=None, values=None, **kwargs):
+        result = next(self._context.select_iter(self._view, where, values, **kwargs), None)
+        return result
+
+    def by_id(self, *args, columns=None):
+        return self._context.select_object_by_id(self._view, args, columns)
+
+
+
 class ExecutionContext(object):
     """ Create a context to work with a schema which closes connection when destroyed
     """
@@ -524,21 +674,29 @@ class ExecutionContext(object):
         """
         self.execute("VACUUM;")
 
-    def select(self, table, where=None, values=None, orderby=None, limit=None, columns=None):
+    def select(self, entity, where=None, values=None, orderby=None, limit=None, columns=None):
         """ Support these keywords where, values, orderby, limit and columns"""
-        if isinstance(table, Table):
-            return tuple(x for x in self.select_iter(table, where, values, orderby, limit, columns))
+        if isinstance(entity, Table):
+            return tuple(x for x in self.select_iter(entity, where, values, orderby, limit, columns))
+        elif isinstance(entity, View):
+            return tuple(x for x in self.select_iter(entity, where, values, orderby, limit, columns))
         else:
-            query = QueryBuilder.build_select(table, where, orderby, limit, columns)
+            query = QueryBuilder.build_select(entity, where, orderby, limit, columns)
             return self.execute(query, values).fetchall()
 
-    def select_iter(self, table, where=None, values=None, orderby=None, limit=None, columns=None):
+    def select_iter(self, entity, where=None, values=None, orderby=None, limit=None, columns=None):
         """ Support these keywords where, values, orderby, limit and columns"""
-        query = QueryBuilder.build_select(table, where, orderby, limit, columns)
-        if isinstance(table, Table):
+
+        if isinstance(entity, Table):
+            query = QueryBuilder.build_select(entity, where, orderby, limit, columns)
             for row_tuple in self.execute(query, values):
-                yield table.to_obj(row_tuple, columns=columns)
+                yield entity.to_obj(row_tuple, columns=columns)
+        elif isinstance(entity, View):
+            query = QueryBuilder.build_select_from_view(entity, where, orderby, limit, columns)
+            for row_tuple in self.execute(query, values):
+                yield entity.to_obj(row_tuple, columns=columns)
         else:
+            query = QueryBuilder.build_select(entity, where, orderby, limit, columns)
             return self.execute(query, values)
 
     def insert(self, table, values=None, columns=None, **kwargs):
@@ -648,6 +806,11 @@ class ExecutionContext(object):
             ctx = TableContext(tbl, self)
             setattr(self, name, ctx)
             return getattr(self, name)
+        elif name in self.schema._views:
+            view = getattr(self.schema, name)
+            ctx = ViewContext(view, self)
+            setattr(self, name, ctx)
+            return getattr(self, name)
         elif name in dir(self.schema):
             return getattr(self.schema, name, None)
         else:
@@ -681,12 +844,16 @@ class Database(object):
         if setup_script:
             self.setup_scripts.append(setup_script)
         self._tables = {}
+        self._views = {}
         self.query_builder = QueryBuilder(self)
         self._strict_mode = strict_mode
 
     @property
     def tables(self):
         return self._tables
+
+    def views(self):
+        return self._views
 
     def add_file(self, setup_file):
         self.setup_files.append(setup_file)
@@ -710,6 +877,21 @@ class Database(object):
             setattr(self, alias, tbl_obj)
             self._tables[alias] = tbl_obj
         return tbl_obj
+
+    def add_view(self, name, columns=None, proto=None, id_cols=None, alias=None, **field_map):
+        """ Add a new view design to this schema """
+        if not columns:
+            columns = []
+        elif isinstance(columns, str):
+            # warning?
+            columns = columns.split()
+        view_obj = View(name, *columns, data_source=self.__data_source, proto=proto, id_cols=id_cols, strict_mode=self._strict_mode, **field_map)
+        setattr(self, name, view_obj)
+        self._views[name] = view_obj
+        if alias:
+            setattr(self, alias, view_obj)
+            self._views[alias] = view_obj
+        return view_obj
 
     @property
     def ds(self):

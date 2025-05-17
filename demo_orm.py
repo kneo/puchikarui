@@ -58,6 +58,7 @@ class SchemaDemo(Schema):
         Schema.__init__(self, data_source, setup_file=setup_file)
         self.add_table('person', 'ID name age', id_cols='ID', proto=Person)
         self.add_table('hobby', ['pid', 'hobby'])
+        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'])
 
 
 # ----------------------------------------------------------------------
@@ -82,6 +83,13 @@ def main():
     buu.age += 1
     db.person.save(buu)
     print(f"Aged Buu => {db.person.by_id(buu.ID)}")
+
+    person_hobbies = db.person_hobby_view.select(where='phobby IS NOT NULL')
+
+    for person_hobby in person_hobbies:
+        print(f"{person_hobby.pname} is {person_hobby.page} years old. Hobby:{person_hobby.phobby}")
+
+    print(f"There are hobby data for {len(person_hobbies)} people.")
 
 
 if __name__ == "__main__":
