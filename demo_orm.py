@@ -52,13 +52,22 @@ class Person(object):
         return "#{}: {}/{}".format(self.ID, self.name, self.age)
 
 
+class PersonHobby(object):
+    def __init__(self, name='', age=-1, hobby = ''):
+        self.pname = name
+        self.page = age
+        self.phobby = age
+
+    def __str__(self):
+        return "#{}: {}/{}".format(self.pname, self.page, self.phobby)
+
 class SchemaDemo(Schema):
 
     def __init__(self, data_source, setup_file=SETUP_FILE):
         Schema.__init__(self, data_source, setup_file=setup_file)
         self.add_table('person', 'ID name age', id_cols='ID', proto=Person)
         self.add_table('hobby', ['pid', 'hobby'])
-        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'])
+        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'], proto=PersonHobby)
 
 
 # ----------------------------------------------------------------------
@@ -87,7 +96,7 @@ def main():
     person_hobbies = db.person_hobby_view.select(where='phobby IS NOT NULL')
 
     for person_hobby in person_hobbies:
-        print(f"{person_hobby.pname} is {person_hobby.page} years old. Hobby:{person_hobby.phobby}")
+        print(person_hobby)
 
     print(f"There are hobby data for {len(person_hobbies)} people.")
 

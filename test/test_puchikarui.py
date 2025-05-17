@@ -46,7 +46,7 @@ class SchemaDemo(Schema):
         self.add_table('hobby').add_fields('pid', 'hobby')
         self.add_table('school', alias='college').add_fields('ID', 'name', 'address')
         self.add_table('diary', 'ID pid text').set_proto(Diary).set_id('ID').field_map(pid='ownerID', text='content')
-        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'])
+        self.add_view('person_hobby_view', ['pname', 'page', 'phobby'], proto=PersonHobby)
 
 
 class Diary(object):
@@ -81,6 +81,21 @@ class Person(object):
         return {'ID': self.ID,
                 'name': self.name,
                 'age': self.age}
+
+
+class PersonHobby(object):
+    def __init__(self, name='', age=-1, hobby = ''):
+        self.pname = name
+        self.page = age
+        self.phobby = age
+
+    def __str__(self):
+        return "name: {} age:{} hobby: {}".format(self.pname, self.page, self.phobby)
+
+    def to_dict(self):
+        return {'name': self.pname,
+                'age': self.page,
+                'hobby': self.phobby}
 
 
 ########################################################################
@@ -572,6 +587,20 @@ class TestDemoLib(unittest.TestCase):
         db = SchemaDemo()  # create a new DB in RAM
         with db.ctx() as ctx:
             hobbies = ctx.person_hobby_view.select(where='phobby IS NOT NULL')
+            self.assertEqual(len(hobbies), 2)
+            print(hobbies)
+
+    def test_proto_view(self):
+        db = SchemaDemo()  # create a new DB in RAM
+        with db.ctx() as ctx:
+            hobbies = ctx.person_hobby_view.select(where='phobby IS NOT NULL')
+
+            for hobby in hobbies:
+                self.assertIsNotNone(hobby)
+                self.assertIsNotNone(hobby.pname)
+                self.assertIsNotNone(hobby.page)
+                self.assertIsNotNone(hobby.phobby)
+
             self.assertEqual(len(hobbies), 2)
             print(hobbies)
 
