@@ -91,6 +91,30 @@ def normal_mode(cur):
 # Classes
 # -------------------------------------------------------------
 
+class WhereIn:
+    def __init__(self, column, values):
+        self._column = column
+        self._values = values
+
+    def __str__(self):
+        result = []
+        result.append(self._column)
+        result.append(" IN (")
+        count = 0
+        for value in self._values:
+            if isinstance(value,int) or isinstance(value,float):
+                result.append(str(value))
+            if isinstance(value,str):
+                result.append("\'")
+                result.append(str(value))
+                result.append("\'")
+            if len(self._values) - 1 > count:
+                result.append(',')
+            count = count + 1
+        result.append(")")
+
+        return ''.join(result)
+
 class Table:
     def __init__(self, name, *columns, data_source=None, proto=None, id_cols: Sequence = None,
                  strict_mode=False, **field_map):
@@ -435,14 +459,19 @@ class QueryBuilder(object):
         query.append(table_name)
         if where:
             query.append(" WHERE ")
-            query.append(where)
+            if isinstance(where,str):
+                query.append(where)
+            elif isinstance(where,WhereIn):
+                query.append(str(where))
         if orderby:
             query.append(" ORDER BY ")
             query.append(orderby)
         if limit:
             query.append(" LIMIT ")
             query.append(str(limit))
-        return ''.join(query)
+
+        res_str = ''.join(query)
+        return res_str
 
     @classmethod
     def build_select_from_view(cls, view, where=None, orderby=None, limit=None, columns=None) -> str:
@@ -459,9 +488,13 @@ class QueryBuilder(object):
         query.append(','.join(columns) if columns else '*')
         query.append(" FROM ")
         query.append(view_name)
+
         if where:
             query.append(" WHERE ")
-            query.append(where)
+            if isinstance(where,str):
+                query.append(where)
+            elif isinstance(where,WhereIn):
+                query.append(str(where))
         if orderby:
             query.append(" ORDER BY ")
             query.append(orderby)

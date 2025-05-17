@@ -92,6 +92,7 @@ If you want ORM features, please consider [PonyORM](https://ponyorm.org/), [SQLA
 - Flexible execution context management (single or multiple cursors)
 - Use up-to-date database best practices (using parameters to prevent SQL injection, optimize settings for buck insert, et cetera)
 - Defining database schemas is simple
+- use views to simplify complicated queries into simple select * from ... statements.
 
 ## Meaning
 

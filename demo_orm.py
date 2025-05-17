@@ -28,6 +28,7 @@ Latest version can be found at https://github.com/letuananh/puchikarui
 
 import os
 from puchikarui import Schema
+from puchikarui import WhereIn
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -99,6 +100,11 @@ def main():
         print(person_hobby)
 
     print(f"There are hobby data for {len(person_hobbies)} people.")
+
+    special_persons = db.person.select(where=WhereIn("id",[1,2,3]))
+
+    for person in special_persons:
+        print(f"{person.name} is {person.age} years old.")
 
 
 if __name__ == "__main__":
